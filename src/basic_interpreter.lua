@@ -1,76 +1,85 @@
--- VerbOx Interpreter with external libraries
+-- VerbOx Interpreter (modular + block-aware)
+
+local IncludeFetch = require("src.include_fetch")
 
 local variables = {}
 local solve = nil
 local complete = true
 local operationType = nil
-local libraries = {} -- loaded libraries
+local libraries = {}
 
--- Load library from library/ folder
-local function loadLibrary(line)
-    local libName = line:match("#include%s+(%w+)")
-    local path = "library/" .. libName .. ".lua"
-    local ok, lib = pcall(dofile, path)
-    if ok and lib then
-        libraries[libName] = lib
-        print("Library "..libName.." loaded")
-    else
-        print("Failed to load library: "..libName)
-    end
+-- Helpers
+local function createVariable(varName)
+    if varName then variables[varName] = 0 end
 end
 
--- Set operation type
-local function setOperationType(line)
-    local op = line:match("type%.to%.solve%((%w+)%)")
-    if op then
-        operationType = op
-        print("Operation type set to:", op)
-    end
-end
-
--- Create variable
-local function createVariable(line)
-    local varName = line:match('create%.variable%("([^"]+)"%)')
-    if varName then
-        variables[varName] = 0
-    end
-end
-
--- Print variable
-local function printVariable(line)
-    local varName = line:match('print%.variable%("([^"]+)"%)')
+local function printVariable(varName)
     if varName then
         print(variables[varName])
     end
 end
 
--- Execute library function: e.g., math.multiple("9 x 8")
 local function executeLibraryFunction(line)
     local libName, funcName, arg = line:match("(%w+)%.(%w+)%(([^)]*)%)")
     if libName and funcName and libraries[libName] then
         local func = libraries[libName][funcName]
-        if func then func(arg, variables) end
+        if func then func(arg, variables, solve) end
     end
 end
 
--- Parse a single line
-local function parse(line)
-    line = line:match("^%s*(.-)%s*$")
+local function parseBlock(lines)
+    local i = 1
+    while i <= #lines do
+        local line = lines[i]:match("^%s*(.-)%s*$")
 
-    if line:match("^#include") then
-        loadLibrary(line)
-    elseif line:match("^type%.to%.solve") then
-        setOperationType(line)
-    elseif line:match("^create%.variable") then
-        createVariable(line)
-    elseif line:match("^print%.variable") then
-        printVariable(line)
-    elseif line:match("^if") then
-        if solve == complete then
-            print("Condition true, executing block...")
+        -- #include
+        if line:match("^#include") then
+            local libName = line:match("#include%s+(%w+)")
+            libraries[libName] = IncludeFetch:load(libName)
+
+        -- type.to.solve(...)
+        elseif line:match("^type%.to%.solve") then
+            local op = line:match("type%.to%.solve%((%w+)%)")
+            if op then
+                operationType = op
+                print("Operation type set to:", op)
+            end
+
+        -- create.variable(...)
+        elseif line:match("^create%.variable") then
+            local varName = line:match('create%.variable%("([^"]+)"%)')
+            createVariable(varName)
+
+        -- print.variable(...)
+        elseif line:match("^print%.variable") then
+            local varName = line:match('print%.variable%("([^"]+)"%)')
+            printVariable(varName)
+
+        -- Library function call
+        elseif line:match("^%w+%.%w+%(") then
+            executeLibraryFunction(line)
+
+        -- If statement block
+        elseif line:match("^if") then
+            local conditionVar, conditionValue = line:match("if%s+(%w+)%s*==%s*(%w+)%s*then")
+            local blockLines = {}
+            local j = i + 1
+            while j <= #lines do
+                local inner = lines[j]
+                if inner:match("^end") then break end
+                table.insert(blockLines, inner)
+                j = j + 1
+            end
+
+            -- Evaluate condition
+            if _G[conditionVar] == _G[conditionValue] or variables[conditionVar] == variables[conditionValue] then
+                parseBlock(blockLines)
+            end
+            i = j -- skip the block
+
         end
-    elseif line:match("^%w+%.%w+%(") then
-        executeLibraryFunction(line)
+
+        i = i + 1
     end
 end
 
@@ -78,9 +87,14 @@ end
 local function runFile(path)
     local file = io.open(path, "r")
     if not file then error("File not found: "..path) end
-    for line in file:lines() do parse(line) end
+
+    local lines = {}
+    for line in file:lines() do table.insert(lines, line) end
     file:close()
+
+    parseBlock(lines)
 end
 
 -- Example run
+runFile("examples/prototype.hl")
 runFile("examples/test.hl")
