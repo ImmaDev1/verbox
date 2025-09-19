@@ -83,4 +83,4 @@ local function runFile(path)
 end
 
 -- Example run
-runFile("examples/multiplication.hl")
+runFile("examples/test.hl")
