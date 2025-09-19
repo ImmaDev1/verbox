@@ -1,0 +1,7 @@
+#include math
+type.to.solve(multiplication)
+
+math.multiple("9 x 8")
+if solve == complete then
+  create.variable("$answer")
+  print.variable("$answer")
